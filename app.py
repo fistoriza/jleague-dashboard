@@ -3,14 +3,26 @@ from streamlit_autorefresh import st_autorefresh
 import requests
 import pandas as pd
 import time
+from datetime import datetime
+import pytz
 
 # st_autorefresh(interval=60000, key="autorefresh")
-
 
 API_KEY = "HbrDmsYhYjDBKF7Z"
 SECRET = "ytzv9WWaSohrEXrm8TZvmYMlipW2431D"
 
 url = f"https://livescore-api.com/api-client/fixtures/matches.json?competition_id=28&key={API_KEY}&secret={SECRET}"
+
+def convert_to_perth(date, time):
+    try:
+        utc = pytz.utc
+        perth = pytz.timezone("Australia/Perth")
+        dt = datetime.strptime(f"{date} {time}", "%Y-%m-%d %H:%M:%S")
+        dt_utc = utc.localize(dt)
+        dt_perth = dt_utc.astimezone(perth)
+        return dt_perth.strftime("%H:%M")
+    except:
+        return time
 
 response = requests.get(url)
 data = response.json()
@@ -48,7 +60,10 @@ else:
 
 st.metric("Total Upcoming Fixtures", len(df))
 st.subheader("Upcoming Fixtures")
+
+df["time"] = df.apply(lambda row: convert_to_perth(row["date"], row["time"]), axis=1)
 df = df[["date", "time", "home_name", "away_name", "location"]]
+
 df.rename(columns={
     "date": "Date",
     "time": "Time",
@@ -115,7 +130,19 @@ df_results.rename(columns={
 }, inplace=True)
 
 st.subheader("Recent Results")
-search_result = st.text_input("Search by team name", key="results_search")
-if search_result:
-    df_results = df_results[df_results["Home Team"].str.contains(search_result, case=False) | df_results["Away Team"].str.contains(search_result, case=False)]
+
+results_url = f"https://livescore-api.com/api-client/scores/history.json?competition_id=28&from=2025-08-01&to=2026-02-19&key={API_KEY}&secret={SECRET}"
+results_response = requests.get(results_url)
+results_data = results_response.json()
+total_pages = results_data["data"]["total_pages"]
+
+# Fetch last page only for speed
+last_url = f"https://livescore-api.com/api-client/scores/history.json?competition_id=28&from=2025-08-01&to=2026-02-19&page={total_pages}&key={API_KEY}&secret={SECRET}"
+last_response = requests.get(last_url)
+last_data = last_response.json()
+
+matches = last_data["data"]["match"]
+df_results = pd.DataFrame(matches)
+df_results = df_results.sort_values("date", ascending=False).head(10)
+df_results = df_results[["date", "home_name", "away_name", "score", "ht_score", "status"]]
 st.dataframe(df_results, hide_index=True)
